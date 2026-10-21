@@ -84,6 +84,10 @@ def validate_name(name: str) -> str:
     return name
 
 
+def _is_portable_cwd(path: str) -> bool:
+    return path.startswith("~") or Path(path).is_absolute()
+
+
 def _coerce_env(name: str, raw: object) -> dict[str, str]:
     if not isinstance(raw, dict):
         raise ConfigError(f"[commands.{name}].env must be a table of KEY = \"VALUE\"")
@@ -136,6 +140,11 @@ def _coerce(name: str, value: object) -> Command:
         cwd = value.get("cwd")
         if cwd is not None and (not isinstance(cwd, str) or not cwd):
             raise ConfigError(f"[commands.{name}].cwd must be a non-empty string")
+        if cwd is not None and not _is_portable_cwd(cwd):
+            raise ConfigError(
+                f"[commands.{name}].cwd must be absolute or start with ~: "
+                f"{cwd!r} would resolve against whatever directory you happen to run from"
+            )
 
         env = _coerce_env(name, value["env"]) if "env" in value else {}
         env_unset = (

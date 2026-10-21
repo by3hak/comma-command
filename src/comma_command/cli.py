@@ -156,7 +156,7 @@ def _add(args: list[str]) -> int:
         elif flag == "--cwd":
             if not args:
                 raise CliError("add: --cwd needs a directory")
-            cwd = args.pop(0)
+            cwd = _resolve_cwd(args.pop(0))
         elif flag in ("-h", "--help"):
             print(
                 "usage: comma add [--force] [--env KEY=VALUE]... [--unset KEY]... "
@@ -225,6 +225,19 @@ def _add(args: list[str]) -> int:
     if not _on_path(paths.shim_dir()):
         print(f"note: {paths.shim_dir()} is not on PATH — run `comma init --write`")
     return 0
+
+
+def _resolve_cwd(raw: str) -> str:
+    """Pin a --cwd to one directory now, instead of wherever the shim is run from.
+
+    `~` is kept verbatim so a config stays portable between users; anything else
+    becomes absolute. A relative path would silently change meaning per caller.
+    """
+    if raw.startswith("~"):
+        return raw
+    if not raw:
+        raise CliError("add: --cwd needs a directory")
+    return os.path.abspath(raw)
 
 
 def _dropped_modifiers(previous: config_mod.Command, current: config_mod.Command) -> list[str]:
