@@ -11,6 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
 
+#: Only these inherited variables reach a test subprocess. Anything else — API
+#: keys, tokens, cloud credentials — must not leak into a test environment, a
+#: child process, or a pytest assertion dump.
+SAFE_INHERIT = frozenset(
+    {"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TERM", "USER", "SYSTEMROOT"}
+)
+
+
 @pytest.fixture
 def env(tmp_path: Path) -> dict[str, str]:
     """A hermetic environment: throwaway HOME, XDG dirs, src on PYTHONPATH."""
@@ -19,8 +27,9 @@ def env(tmp_path: Path) -> dict[str, str]:
     pythonpath = str(SRC)
     if os.environ.get("PYTHONPATH"):
         pythonpath += os.pathsep + os.environ["PYTHONPATH"]
+    inherited = {k: v for k, v in os.environ.items() if k in SAFE_INHERIT}
     return {
-        **os.environ,
+        **inherited,
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_DATA_HOME": str(tmp_path / "data"),
