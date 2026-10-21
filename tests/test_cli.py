@@ -180,3 +180,24 @@ def test_parallel_adds_are_not_lost(comma, env, launcher, tmp_path) -> None:
     assert sorted(name for name in registered if name.startswith("n")) == [
         f"n{i}" for i in range(8)
     ], registered
+
+
+def test_add_accepts_options_after_the_name(comma, env, launcher, echoargs, tmp_path) -> None:
+    """`comma add NAME --env K=V --cwd DIR -- CMD` is the spelling people try first.
+
+    The name reads better next to its options than before them, and the `--`
+    already separates the command, so the position must not matter.
+    """
+    work = tmp_path / "work"
+    work.mkdir()
+
+    result = comma(
+        "add", "gus", "--env", "A=1", "--cwd", str(work), "--", str(echoargs), "hi",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(comma("ls", "--json").stdout)
+    assert payload["gus"]["cmd"] == [str(echoargs), "hi"]
+    assert payload["gus"]["env"] == {"A": "1"}
+    assert payload["gus"]["cwd"] == str(work)
+    assert (shim_dir(env) / "gus,").is_symlink()
