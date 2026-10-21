@@ -166,6 +166,11 @@ def _add(args: list[str]) -> int:
         else:
             raise CliError(f"add: unknown option {flag}")
 
+    # Standard end-of-options marker: `comma add --env A=1 -- gus -- cmd` must not
+    # treat `--` as the name. Shells and users reach for it after flags.
+    if args and args[0] == "--":
+        args.pop(0)
+
     if len(args) < 3:
         raise CliError("add: expected `comma add NAME -- COMMAND [ARG...]`")
 
