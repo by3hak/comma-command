@@ -171,3 +171,43 @@ def test_add_unset_flag(comma, env, launcher) -> None:
     payload = json.loads(comma("ls", "--json").stdout)
 
     assert payload["clean"]["env_unset"] == ["TOKEN"]
+
+
+def test_relative_cwd_is_pinned_at_registration(
+    comma, env, launcher, tmp_path, monkeypatch
+) -> None:
+    """A relative --cwd must not resolve against whoever runs the shim."""
+    proj = tmp_path / "projA"
+    proj.mkdir()
+    elsewhere = tmp_path / "projB"
+    elsewhere.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    comma("add", "--cwd", "projA", "rel", "--", "/bin/sh", "-c", "pwd")
+
+    payload = json.loads(comma("ls", "--json").stdout)
+    assert payload["rel"]["cwd"] == str(proj), "cwd should be stored absolute"
+
+    activate(env)
+    from conftest import run_shim
+
+    monkeypatch.chdir(elsewhere)
+    assert os.path.realpath(run_shim(env, "rel,").stdout.strip()) == os.path.realpath(proj)
+
+
+def test_home_relative_cwd_stays_portable(comma, env, launcher, tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    comma("add", "--cwd", "~/work", "homey", "--", "/bin/echo", "hi")
+
+    payload = json.loads(comma("ls", "--json").stdout)
+    assert payload["homey"]["cwd"] == "~/work"
+
+
+def test_hand_written_relative_cwd_is_rejected(comma, env, launcher) -> None:
+    write_config(env, '[commands.bad]\ncmd = ["/bin/echo", "hi"]\ncwd = "relative/dir"\n')
+
+    result = comma("ls")
+
+    assert result.returncode == 1
+    assert "must be absolute or start with ~" in result.stderr
