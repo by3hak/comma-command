@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "comma-command"
 version = "0.2.0"
-description = "Run any configured command from any shell as `name, args` — register once, invoke everywhere."
+description = "Run configured commands as `NAME, ARGS` from any shell."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"

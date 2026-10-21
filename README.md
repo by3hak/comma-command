@@ -1,14 +1,20 @@
 # comma-command
 
-Run any command you have installed from any shell, as if it were a shell builtin:
+Run configured commands from any shell with the `NAME, ARGS` form.
+
+After installation and PATH setup:
 
 ```console
-$ gus, hello world
-# → too talk gus -- hello world
+$ comma add greet -- echo hello
+added greet, → echo hello
+
+$ greet, world
+hello world
 ```
 
-Register an entry once. From then on, `NAME, any words` is the whole interface — no
-aliases to source, no shell hook, no TUI.
+Each configured name is an executable shim on PATH that forwards the remaining
+arguments to its command. Run `comma init --write` to add the shim directory to
+PATH; no shell function or command-not-found hook is needed.
 
 ## Install
 
@@ -52,9 +58,9 @@ ran `comma init` — `comma gus, hello world` reaches the same dispatch path. `c
 takes `NAME,` rather than bare `NAME` so that a registered name can never collide
 with the management subcommands (`ls`, `run`, `doctor`, ...).
 
-Because the final step *replaces* the process instead of spawning a child, the
-target command inherits the terminal, stdin, signals and job control directly, and
-its exit status reaches your shell unchanged. `comma,` adds no wrapping layer.
+Because the final step *replaces* the dispatcher instead of spawning a child,
+the target inherits the terminal, stdin, signals and job control directly, and its
+exit status reaches your shell unchanged. No wrapper process remains.
 
 Why not the alternatives:
 
@@ -73,15 +79,17 @@ Why not the alternatives:
 ```toml
 [commands.gus]
 cmd = ["too", "talk", "gus", "--"]
-
-# shorthand is fine too
-[commands.pyi]
-cmd = "uv run ipython --"
 ```
 
-This `[commands.<name>]` table is the canonical schema: per-command options such as
-`env` and `cwd` will live in it. The `name = "..."` shorthand is accepted as input
-sugar and is shown here only so you can read someone else's config.
+The nested `[commands.<name>]` table is canonical and supports per-command options
+such as `env` and `cwd`. For a simple entry, this string shorthand is also accepted:
+
+```toml
+[commands]
+pyi = "uv run ipython --"
+```
+
+The shorthand is input sugar; the nested table remains the documented schema.
 
 Arguments are appended verbatim, so `--` at the end of `cmd` is the usual way to
 keep flags from being swallowed by the target's own option parser.
@@ -135,8 +143,8 @@ Recorded so they do not get relitigated every release:
 - **No argument completion for target commands.** Command-position completion is
   free because the shims are real files on `PATH`, and `comma`'s own subcommands
   have completion. Completing a target's *arguments* would need a completion
-  protocol per target — out of scope for 0.1, and better designed once someone
-  actually needs it.
+  protocol per target — out of scope for the current release and better designed
+  once there is a concrete need.
 
 ## Limits
 
