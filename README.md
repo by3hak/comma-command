@@ -79,6 +79,10 @@ cmd = ["too", "talk", "gus", "--"]
 cmd = "uv run ipython --"
 ```
 
+This `[commands.<name>]` table is the canonical schema: per-command options such as
+`env` and `cwd` will live in it. The `name = "..."` shorthand is accepted as input
+sugar and is shown here only so you can read someone else's config.
+
 Arguments are appended verbatim, so `--` at the end of `cmd` is the usual way to
 keep flags from being swallowed by the target's own option parser.
 
@@ -99,6 +103,24 @@ keep flags from being swallowed by the target's own option parser.
 Names must be shell-safe words: letters, digits, `.`, `_`, `+`, `-`. The comma is
 added for you, so `comma add gus, -- ...` is rejected rather than silently creating
 `gus,,`.
+
+## Design decisions
+
+Recorded so they do not get relitigated every release:
+
+- **No `command_not_found_handle` fallback.** The hook only fires when a PATH lookup
+  fails, so it cannot resolve a name whose `NAME,` file already exists; it is also
+  bash-only and fights the distro's own hook. `comma add` instead refuses to
+  overwrite a foreign `NAME,` unless you pass `--force`, and CI/scripts use
+  `comma NAME, ...`.
+- **`[commands.<name>]` is canonical.** Per-command options (`env`, `cwd`, ...)
+  belong in that sub-table. The `name = "..."` shorthand stays as input sugar and
+  is not documented twice.
+- **No argument completion for target commands.** Command-position completion is
+  free because the shims are real files on `PATH`, and `comma`'s own subcommands
+  have completion. Completing a target's *arguments* would need a completion
+  protocol per target — out of scope for 0.1, and better designed once someone
+  actually needs it.
 
 ## Limits
 
