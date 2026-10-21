@@ -88,3 +88,19 @@ def test_broken_config_is_reported(comma, env, launcher, echoargs) -> None:
 
     assert result.returncode == 1
     assert "invalid TOML" in result.stderr
+
+
+def test_name_comma_sugar_without_shim(comma, env, launcher, echoargs) -> None:
+    comma("add", "gus", "--", str(echoargs), "--")
+
+    result = comma("gus,", "hello", "world")
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["--", "hello", "world"]
+
+
+def test_name_comma_sugar_unknown_name(comma, env, launcher) -> None:
+    result = comma("ghost,", "hi")
+
+    assert result.returncode == 127
+    assert "no command named 'ghost'" in result.stderr

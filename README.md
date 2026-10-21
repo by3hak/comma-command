@@ -47,6 +47,11 @@ subcommands, applied to names:
    the config.
 3. It calls `os.execvpe("too", ["too", "talk", "gus", "--", "hello", "world"])`.
 
+If the shim directory is not on `PATH` — a CI job, a container, a repo where nobody
+ran `comma init` — `comma gus, hello world` reaches the same dispatch path. `comma`
+takes `NAME,` rather than bare `NAME` so that a registered name can never collide
+with the management subcommands (`ls`, `run`, `doctor`, ...).
+
 Because the final step *replaces* the process instead of spawning a child, the
 target command inherits the terminal, stdin, signals and job control directly, and
 its exit status reaches your shell unchanged. `comma,` adds no wrapping layer.
@@ -85,6 +90,7 @@ keep flags from being swallowed by the target's own option parser.
 | `comma rm NAME` | unregister a name and remove its shim |
 | `comma ls [--json]` | list registered names |
 | `comma run NAME [--] [ARG...]` | run a name without going through the shim |
+| `comma NAME, [ARG...]` | the shell spelling, without the shim on PATH (handy in CI) |
 | `comma which NAME` | show the shim path and the command it runs |
 | `comma init [--write] [--shell S]` | print or install PATH + completion setup |
 | `comma doctor` | check config, PATH, shims and targets |

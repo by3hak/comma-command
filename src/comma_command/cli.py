@@ -25,6 +25,7 @@ usage:
   comma rm NAME                        unregister NAME
   comma ls [--json]                    list registered commands
   comma run NAME [--] [ARG...]         run NAME without going through the shim
+  comma NAME, [ARG...]                 same as `NAME,`, for shells without the shim on PATH
   comma which NAME                     show the shim and what NAME runs
   comma init [--write] [--shell S]     print or install shell setup (PATH + completion)
   comma doctor                         check the installation
@@ -427,6 +428,12 @@ def main(argv: list[str] | None = None) -> int:
     name = invoked_name(prog)
     if name is not None:
         return dispatch(name, args)
+
+    # `comma NAME, args...` — the same spelling as the shell form, for machines
+    # where the shim directory is not on PATH. Not `comma NAME args`: that would
+    # collide with the management subcommands (an alias called `ls` or `run`).
+    if args and len(args[0]) > 1 and args[0].endswith(","):
+        return dispatch(args[0][:-1], args[1:])
 
     if not args or args[0] in ("-h", "--help", "help"):
         sys.stdout.write(USAGE)

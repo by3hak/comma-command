@@ -116,7 +116,9 @@ def test_completion_scripts(comma, env) -> None:
 
 
 def test_version_and_help(comma, env) -> None:
-    assert "comma 0.1.0" in comma("--version").stdout
+    from comma_command import __version__
+
+    assert f"comma {__version__}" in comma("--version").stdout
     usage = comma("--help").stdout
     assert "comma add NAME" in usage
     assert comma("bogus").returncode == 2
