@@ -120,5 +120,6 @@ def test_version_and_help(comma, env) -> None:
 
     assert f"comma {__version__}" in comma("--version").stdout
     usage = comma("--help").stdout
-    assert "comma add NAME" in usage
+    assert "comma add" in usage and "NAME -- COMMAND" in usage
+    assert "comma edit" in usage
     assert comma("bogus").returncode == 2

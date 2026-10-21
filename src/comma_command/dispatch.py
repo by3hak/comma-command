@@ -3,6 +3,10 @@
 Dispatch ends in :func:`os.execvpe`: the process is replaced, so the child
 inherits the terminal, the foreground process group, stdin, and its exit
 status reaches the shell untouched. No wrapper process, no signal proxying.
+
+Per-command ``cwd``/``env``/``env_unset`` are applied here, in that order:
+change directory, then build the environment (drop inherited variables, overlay
+the configured ones), then exec.
 """
 
 from __future__ import annotations
@@ -22,6 +26,15 @@ def invoked_name(prog: str) -> str | None:
     return None
 
 
+def build_env(command: config_mod.Command, base: dict[str, str] | None = None) -> dict[str, str]:
+    """Inherited environment, minus ``env_unset``, plus ``env``."""
+    env = dict(os.environ if base is None else base)
+    for key in command.env_unset:
+        env.pop(key, None)
+    env.update(command.env)
+    return env
+
+
 def dispatch(name: str, args: list[str]) -> int:
     """Replace this process with the command registered under ``name``."""
     try:
@@ -38,9 +51,21 @@ def dispatch(name: str, args: list[str]) -> int:
         print(f"  add one:    comma add {name} -- your-command --", file=sys.stderr)
         return 127
 
+    if command.cwd:
+        target = os.path.expanduser(command.cwd)
+        try:
+            os.chdir(target)
+        except OSError as exc:
+            print(
+                f"comma: cannot change to cwd {command.cwd!r} for {name!r}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+
     argv = [*command.argv, *args]
+    env = build_env(command)
     try:
-        os.execvpe(argv[0], argv, os.environ)
+        os.execvpe(argv[0], argv, env)
     except FileNotFoundError:
         print(f"comma: command not found: {argv[0]!r} (registered as {name!r})", file=sys.stderr)
         return 127

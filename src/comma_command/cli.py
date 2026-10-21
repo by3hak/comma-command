@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,7 +23,9 @@ USAGE = """\
 comma — run any configured command as `name, args`
 
 usage:
-  comma add NAME -- COMMAND [ARG...]   register NAME (creates the `NAME,` shim)
+  comma add [--env K=V]... [--unset K]... [--cwd DIR] [--force] NAME -- COMMAND...
+                                       register NAME (creates the `NAME,` shim)
+  comma edit                           open the config in $EDITOR, then re-validate
   comma rm NAME                        unregister NAME
   comma ls [--json]                    list registered commands
   comma run NAME [--] [ARG...]         run NAME without going through the shim
@@ -129,12 +133,35 @@ def _init_snippet(shell: str) -> str:
 
 def _add(args: list[str]) -> int:
     force = False
+    env: dict[str, str] = {}
+    env_unset: list[str] = []
+    cwd: str | None = None
+
     while args and args[0].startswith("-") and args[0] != "--":
         flag = args.pop(0)
         if flag in ("-f", "--force"):
             force = True
+        elif flag in ("-e", "--env"):
+            if not args:
+                raise CliError("add: --env needs KEY=VALUE")
+            pair = args.pop(0)
+            key, sep, value = pair.partition("=")
+            if not sep or not key:
+                raise CliError(f"add: --env expects KEY=VALUE, got {pair!r}")
+            env[key] = value
+        elif flag in ("-u", "--unset"):
+            if not args:
+                raise CliError("add: --unset needs a variable name")
+            env_unset.append(args.pop(0))
+        elif flag == "--cwd":
+            if not args:
+                raise CliError("add: --cwd needs a directory")
+            cwd = args.pop(0)
         elif flag in ("-h", "--help"):
-            print("usage: comma add [--force] NAME -- COMMAND [ARG...]")
+            print(
+                "usage: comma add [--force] [--env KEY=VALUE]... [--unset KEY]... "
+                "[--cwd DIR] NAME -- COMMAND [ARG...]"
+            )
             return 0
         else:
             raise CliError(f"add: unknown option {flag}")
@@ -162,7 +189,13 @@ def _add(args: list[str]) -> int:
         )
 
     commands = config_mod.load(paths.config_path())
-    commands[name] = config_mod.Command(name=name, argv=tuple(cmd_argv))
+    commands[name] = config_mod.Command(
+        name=name,
+        argv=tuple(cmd_argv),
+        cwd=cwd,
+        env=env,
+        env_unset=tuple(env_unset),
+    )
     config_mod.save(paths.config_path(), commands)
     _install_shim(name)
 
@@ -195,10 +228,16 @@ def _ls(args: list[str]) -> int:
     commands = config_mod.load(paths.config_path())
 
     if "--json" in args:
-        payload = {
-            name: {"cmd": list(cmd.argv), "shim": str(paths.shim_dir() / f"{name},")}
-            for name, cmd in sorted(commands.items())
-        }
+        payload = {}
+        for name, cmd in sorted(commands.items()):
+            entry = {"cmd": list(cmd.argv), "shim": str(paths.shim_dir() / f"{name},")}
+            if cmd.cwd:
+                entry["cwd"] = cmd.cwd
+            if cmd.env:
+                entry["env"] = dict(cmd.env)
+            if cmd.env_unset:
+                entry["env_unset"] = list(cmd.env_unset)
+            payload[name] = entry
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
 
@@ -208,7 +247,11 @@ def _ls(args: list[str]) -> int:
 
     width = max(len(name) for name in commands) + 1
     for name in sorted(commands):
-        print(f"{name + ',':<{width}}  {commands[name].display()}")
+        line = f"{name + ',':<{width}}  {commands[name].display()}"
+        modifiers = commands[name].modifiers()
+        if modifiers:
+            line += "  [" + " ".join(modifiers) + "]"
+        print(line)
     return 0
 
 
@@ -337,6 +380,8 @@ def _doctor(args: list[str]) -> int:
             issues.append("shim is not executable")
         if shutil.which(command.argv[0]) is None:
             issues.append(f"target {command.argv[0]!r} is not on PATH")
+        if command.cwd and not Path(os.path.expanduser(command.cwd)).is_dir():
+            issues.append(f"cwd {command.cwd!r} is not a directory")
         if issues:
             print(f"FAIL  {name},: " + "; ".join(issues))
             problems += 1
@@ -405,6 +450,55 @@ def _completion(args: list[str]) -> int:
     return 0
 
 
+def _reconcile(commands: dict[str, config_mod.Command]) -> None:
+    """Make the shim directory match the config (used after `comma edit`)."""
+    paths.shim_dir().mkdir(parents=True, exist_ok=True)
+    for name in commands:
+        _install_shim(name)
+    for shim in paths.shim_dir().iterdir():
+        if not shim.name.endswith(",") or shim.name[:-1] in commands:
+            continue
+        try:
+            ours = _is_our_shim(shim)
+        except (OSError, CliError):
+            ours = False
+        if ours:
+            shim.unlink()
+
+
+def _edit(args: list[str]) -> int:
+    if args and args[0] in ("-h", "--help"):
+        print("usage: comma edit — opens the config in $VISUAL/$EDITOR, then re-validates")
+        return 0
+    if args:
+        raise CliError("edit: takes no arguments; it opens the whole config file")
+
+    path = paths.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        config_mod.save(path, {})
+
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+    try:
+        result = subprocess.run([*shlex.split(editor), str(path)])
+    except OSError as exc:
+        raise CliError(f"edit: cannot run editor {editor!r}: {exc}") from exc
+    if result.returncode != 0:
+        return result.returncode
+
+    try:
+        commands = config_mod.load(path)
+    except config_mod.ConfigError as exc:
+        print(f"comma: {exc}", file=sys.stderr)
+        print(f"comma: fix {path} and run `comma edit` again", file=sys.stderr)
+        return 1
+
+    _reconcile(commands)
+    count = len(commands)
+    print(f"{path}: {count} command{'s' if count != 1 else ''}, shims up to date")
+    return 0
+
+
 _HANDLERS = {
     "add": _add,
     "rm": _rm,
@@ -415,6 +509,7 @@ _HANDLERS = {
     "init": _init,
     "doctor": _doctor,
     "completion": _completion,
+    "edit": _edit,
     "_names": _names,
 }
 

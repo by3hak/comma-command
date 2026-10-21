@@ -86,11 +86,27 @@ sugar and is shown here only so you can read someone else's config.
 Arguments are appended verbatim, so `--` at the end of `cmd` is the usual way to
 keep flags from being swallowed by the target's own option parser.
 
+Per-command settings live in the same table:
+
+```toml
+[commands.deploy]
+cmd = ["kubectl", "apply", "-f", "k8s/"]
+cwd = "~/src/infra"
+env = { KUBECONFIG = "~/.kube/staging" }
+env_unset = ["HTTP_PROXY"]
+```
+
+`env` is **merged into** the inherited environment, so `PATH` and `HOME` keep working,
+and `env_unset` drops inherited variables first — a name may not appear in both.
+`cwd` is `~`-expanded and applied before the target runs. The same options exist on
+the command line: `comma add --env K=V --unset K --cwd DIR NAME -- CMD...`.
+
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `comma add NAME -- CMD...` | register a name and create its `NAME,` shim |
+| `comma add [--env K=V] [--unset K] [--cwd DIR] NAME -- CMD...` | register a name and create its `NAME,` shim |
+| `comma edit` | open the config in `$EDITOR`, re-validate it, reconcile the shims |
 | `comma rm NAME` | unregister a name and remove its shim |
 | `comma ls [--json]` | list registered names |
 | `comma run NAME [--] [ARG...]` | run a name without going through the shim |
@@ -114,7 +130,7 @@ Recorded so they do not get relitigated every release:
   overwrite a foreign `NAME,` unless you pass `--force`, and CI/scripts use
   `comma NAME, ...`.
 - **`[commands.<name>]` is canonical.** Per-command options (`env`, `cwd`, ...)
-  belong in that sub-table. The `name = "..."` shorthand stays as input sugar and
+  live in that sub-table. The `name = "..."` shorthand stays as input sugar and
   is not documented twice.
 - **No argument completion for target commands.** Command-position completion is
   free because the shims are real files on `PATH`, and `comma`'s own subcommands
@@ -124,8 +140,7 @@ Recorded so they do not get relitigated every release:
 
 ## Limits
 
-- POSIX first. Windows needs a `.cmd` shim layer, which is not in 0.1.
-- No per-command `env`/`cwd` yet; use `cmd = ["sh", "-c", "..."]` as an escape hatch.
+- POSIX first. Windows would need a `.cmd` shim layer, which is not implemented yet.
 - The `comma-command` crate on crates.io is a name reservation for a future native
   binary; the Python implementation is the one to install today.
 
