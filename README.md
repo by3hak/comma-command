@@ -91,8 +91,19 @@ pyi = "uv run ipython --"
 
 The shorthand is input sugar; the nested table remains the documented schema.
 
-Arguments are appended verbatim, so `--` at the end of `cmd` is the usual way to
-keep flags from being swallowed by the target's own option parser.
+Arguments are appended verbatim. Add a trailing `--` to `cmd` **only when the target
+needs one** to stop parsing its own options:
+
+```toml
+[commands.gus]
+cmd = ["too", "talk", "gus", "--"]   # too needs the -- before a free-form message
+
+[commands.g]
+cmd = ["git"]                        # git rejects a leading --: `git -- status` fails
+```
+
+A blanket `--` is not safe: `git -- status`, `uv -- run`, and `rg -- foo` all misbehave,
+while `too talk gus --` and `cargo run --` require it.
 
 Per-command settings live in the same table:
 

@@ -123,3 +123,15 @@ def test_version_and_help(comma, env) -> None:
     assert "comma add" in usage and "NAME -- COMMAND" in usage
     assert "comma edit" in usage
     assert comma("bogus").returncode == 2
+
+
+def test_add_accepts_end_of_options_marker(comma, env, launcher, echoargs) -> None:
+    """`comma add --env K=V -- NAME -- CMD` must not treat `--` as the name."""
+    result = comma(
+        "add", "--env", "A=1", "--", "gus", "--", str(echoargs), "hi",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(comma("ls", "--json").stdout)
+    assert payload["gus"]["cmd"] == [str(echoargs), "hi"]
+    assert payload["gus"]["env"] == {"A": "1"}
