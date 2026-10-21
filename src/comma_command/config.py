@@ -16,10 +16,14 @@ accepted as input sugar.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import re
 import shlex
+import tempfile
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -184,6 +188,54 @@ def _toml_string(text: str) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
+@contextmanager
+def transaction(path: Path, *, lock: Path | None = None):
+    """Serialise read-modify-write cycles on the config file.
+
+    Two `comma add` calls at the same time used to race: both read the old file and
+    the later write dropped the other entry. An exclusive lock on a sibling file
+    makes the cycle atomic. Locking is best effort on platforms without fcntl.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = lock if lock is not None else path.with_name(path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock:
+        locked = False
+        try:
+            import fcntl
+        except ImportError:  # pragma: no cover - Windows
+            fcntl = None  # type: ignore[assignment]
+        if fcntl is not None:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            locked = True
+        try:
+            yield
+        finally:
+            if locked:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file in the same directory, then rename into place.
+
+    A crash or a kill during the write leaves the previous config intact instead of
+    a truncated one.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            tmp.unlink()
+        raise
+
+
 def save(path: Path, commands: dict[str, Command]) -> None:
     lines = [
         "# comma config — manage it with `comma add NAME -- COMMAND...`",
@@ -207,5 +259,4 @@ def save(path: Path, commands: dict[str, Command]) -> None:
             keys = ", ".join(_toml_string(key) for key in command.env_unset)
             lines.append(f"env_unset = [{keys}]")
         lines.append("")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="utf-8")
+    _atomic_write(path, "\n".join(lines))

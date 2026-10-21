@@ -193,33 +193,65 @@ def _add(args: list[str]) -> int:
             "(rerun with --force to replace it)"
         )
 
-    commands = config_mod.load(paths.config_path())
-    commands[name] = config_mod.Command(
+    command = config_mod.Command(
         name=name,
         argv=tuple(cmd_argv),
         cwd=cwd,
         env=env,
         env_unset=tuple(env_unset),
     )
-    config_mod.save(paths.config_path(), commands)
+    config_path = paths.config_path()
+    with config_mod.transaction(config_path, lock=paths.lock_path()):
+        commands = config_mod.load(config_path)
+        previous = commands.get(name)
+        commands[name] = command
+        config_mod.save(config_path, commands)
     _install_shim(name)
 
-    print(f"added {name}, → {commands[name].display()}")
+    print(f"added {name}, → {command.display()}")
+    if previous is not None:
+        dropped = _dropped_modifiers(previous, command)
+        if dropped:
+            print(
+                f"note: this replaces the previous {name}, and drops "
+                f"{', '.join(dropped)} (pass the flags again to keep them)"
+            )
+    if shutil.which(command.argv[0]) is None:
+        print(
+            f"warning: {command.argv[0]!r} is not on PATH — `{name},` will exit 127 "
+            "until it is installed or PATH is fixed",
+            file=sys.stderr,
+        )
     if not _on_path(paths.shim_dir()):
         print(f"note: {paths.shim_dir()} is not on PATH — run `comma init --write`")
     return 0
+
+
+def _dropped_modifiers(previous: config_mod.Command, current: config_mod.Command) -> list[str]:
+    """What an overwrite silently removes, so the CLI can say it out loud."""
+    dropped: list[str] = []
+    if previous.cwd and previous.cwd != current.cwd:
+        dropped.append(f"cwd {previous.cwd}")
+    lost_env = sorted(set(previous.env) - set(current.env))
+    if lost_env:
+        dropped.append("env " + ",".join(lost_env))
+    lost_unset = sorted(set(previous.env_unset) - set(current.env_unset))
+    if lost_unset:
+        dropped.append("unset " + ",".join(lost_unset))
+    return dropped
 
 
 def _rm(args: list[str]) -> int:
     if not args:
         raise CliError("rm: expected `comma rm NAME`")
     name = args[0]
-    commands = config_mod.load(paths.config_path())
-    if name not in commands:
-        raise CliError(f"rm: no command named {name!r}")
-
-    removed = commands.pop(name)
-    config_mod.save(paths.config_path(), commands)
+    config_path = paths.config_path()
+    with config_mod.transaction(config_path, lock=paths.lock_path()):
+        commands = config_mod.load(config_path)
+        if name not in commands:
+            raise CliError(f"rm: no command named {name!r}")
+        removed = commands.pop(name)
+        config_mod.save(config_path, commands)
 
     shim = paths.shim_dir() / f"{name},"
     if shim.is_symlink() or shim.exists():

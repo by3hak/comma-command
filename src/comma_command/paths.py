@@ -35,3 +35,12 @@ def data_dir() -> Path:
 def shim_dir() -> Path:
     """Directory holding the executable ``name,`` shims."""
     return data_dir() / "bin"
+
+
+def cache_dir() -> Path:
+    return _xdg("XDG_CACHE_HOME", home() / ".cache") / "comma"
+
+
+def lock_path() -> Path:
+    """Lock file for config read-modify-write, kept out of the config directory."""
+    return cache_dir() / "config.lock"

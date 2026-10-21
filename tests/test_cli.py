@@ -135,3 +135,48 @@ def test_add_accepts_end_of_options_marker(comma, env, launcher, echoargs) -> No
     payload = json.loads(comma("ls", "--json").stdout)
     assert payload["gus"]["cmd"] == [str(echoargs), "hi"]
     assert payload["gus"]["env"] == {"A": "1"}
+
+
+def test_add_warns_when_target_is_missing(comma, env, launcher) -> None:
+    result = comma("add", "typo", "--", "definitely-not-a-real-binary-xyz")
+
+    assert result.returncode == 0, result.stderr
+    assert "is not on PATH" in result.stderr
+    assert "exit 127" in result.stderr
+    assert "typo," in comma("ls").stdout
+
+
+def test_add_reports_modifiers_dropped_by_a_replace(comma, env, launcher, tmp_path) -> None:
+    work = tmp_path / "work"
+    work.mkdir()
+    comma("add", "--env", "PROFILE=work", "--cwd", str(work), "svc", "--", "/bin/echo", "one")
+
+    result = comma("add", "svc", "--", "/bin/echo", "two")
+
+    assert result.returncode == 0, result.stderr
+    assert "replaces the previous svc," in result.stdout
+    assert "env PROFILE" in result.stdout
+    assert f"cwd {work}" in result.stdout
+
+
+def test_parallel_adds_are_not_lost(comma, env, launcher, tmp_path) -> None:
+    """Concurrent read-modify-write used to drop entries; the lock must prevent it."""
+    import subprocess as sp
+    import sys
+
+    procs = [
+        sp.Popen(
+            [sys.executable, "-m", "comma_command", "add", f"n{i}", "--", "/bin/echo", str(i)],
+            env=env,
+            stdout=sp.DEVNULL,
+            stderr=sp.DEVNULL,
+        )
+        for i in range(8)
+    ]
+    for proc in procs:
+        proc.wait()
+
+    registered = json.loads(comma("ls", "--json").stdout)
+    assert sorted(name for name in registered if name.startswith("n")) == [
+        f"n{i}" for i in range(8)
+    ], registered
