@@ -136,51 +136,68 @@ def _add(args: list[str]) -> int:
     env: dict[str, str] = {}
     env_unset: list[str] = []
     cwd: str | None = None
+    name: str | None = None
+    cmd_argv: list[str] | None = None
 
-    while args and args[0].startswith("-") and args[0] != "--":
-        flag = args.pop(0)
-        if flag in ("-f", "--force"):
-            force = True
-        elif flag in ("-e", "--env"):
-            if not args:
-                raise CliError("add: --env needs KEY=VALUE")
-            pair = args.pop(0)
-            key, sep, value = pair.partition("=")
-            if not sep or not key:
-                raise CliError(f"add: --env expects KEY=VALUE, got {pair!r}")
-            env[key] = value
-        elif flag in ("-u", "--unset"):
-            if not args:
-                raise CliError("add: --unset needs a variable name")
-            env_unset.append(args.pop(0))
-        elif flag == "--cwd":
-            if not args:
-                raise CliError("add: --cwd needs a directory")
-            cwd = _resolve_cwd(args.pop(0))
-        elif flag in ("-h", "--help"):
-            print(
-                "usage: comma add [--force] [--env KEY=VALUE]... [--unset KEY]... "
-                "[--cwd DIR] NAME -- COMMAND [ARG...]"
-            )
-            return 0
+    # Options and NAME may come in either order: `comma add --env K=V NAME -- CMD`
+    # reads fine, but so does `comma add NAME --env K=V -- CMD`, where the option
+    # sits next to the name it modifies. The `--` ends the option region, so
+    # everything after it belongs to the command and can never be mistaken for a
+    # flag. A lone `--` before NAME (the end-of-options marker) is skipped.
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "--":
+            if name is None:
+                index += 1
+                continue
+            cmd_argv = args[index + 1 :]
+            break
+        if token.startswith("-"):
+            if token in ("-f", "--force"):
+                force = True
+            elif token in ("-e", "--env"):
+                index += 1
+                if index >= len(args):
+                    raise CliError("add: --env needs KEY=VALUE")
+                pair = args[index]
+                key, sep, value = pair.partition("=")
+                if not sep or not key:
+                    raise CliError(f"add: --env expects KEY=VALUE, got {pair!r}")
+                env[key] = value
+            elif token in ("-u", "--unset"):
+                index += 1
+                if index >= len(args):
+                    raise CliError("add: --unset needs a variable name")
+                env_unset.append(args[index])
+            elif token == "--cwd":
+                index += 1
+                if index >= len(args):
+                    raise CliError("add: --cwd needs a directory")
+                cwd = _resolve_cwd(args[index])
+            elif token in ("-h", "--help"):
+                print(
+                    "usage: comma add [--force] [--env KEY=VALUE]... [--unset KEY]... "
+                    "[--cwd DIR] NAME -- COMMAND [ARG...]"
+                )
+                return 0
+            else:
+                raise CliError(f"add: unknown option {token}")
+            index += 1
+        elif name is None:
+            name = token
+            index += 1
         else:
-            raise CliError(f"add: unknown option {flag}")
+            # A second bare word before the `--`: the command lost its separator.
+            raise CliError(
+                "add: put `--` between the name and the command, "
+                "e.g. `comma add gus -- too talk gus --`"
+            )
 
-    # Standard end-of-options marker: `comma add --env A=1 -- gus -- cmd` must not
-    # treat `--` as the name. Shells and users reach for it after flags.
-    if args and args[0] == "--":
-        args.pop(0)
-
-    if len(args) < 3:
+    if cmd_argv is None:
         raise CliError("add: expected `comma add NAME -- COMMAND [ARG...]`")
-
-    name, tail = args[0], args[1:]
-    if tail[0] != "--":
-        raise CliError(
-            "add: put `--` between the name and the command, "
-            "e.g. `comma add gus -- too talk gus --`"
-        )
-    cmd_argv = tail[1:]
+    if name is None:
+        raise CliError("add: expected a NAME before `--`")
     if not cmd_argv:
         raise CliError("add: missing command after `--`")
 

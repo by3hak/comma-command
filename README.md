@@ -118,7 +118,8 @@ env_unset = ["HTTP_PROXY"]
 `env` is **merged into** the inherited environment, so `PATH` and `HOME` keep working,
 and `env_unset` drops inherited variables first — a name may not appear in both.
 `cwd` is `~`-expanded and applied before the target runs. The same options exist on
-the command line: `comma add --env K=V --unset K --cwd DIR NAME -- CMD...`.
+the command line, on either side of the name as long as they come before the `--`:
+`comma add --env K=V --cwd DIR NAME -- CMD...` or `comma add NAME --env K=V -- CMD...`.
 
 ## Commands
 
