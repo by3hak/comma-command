@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from conftest import activate, shim_dir
 
@@ -201,3 +205,69 @@ def test_add_accepts_options_after_the_name(comma, env, launcher, echoargs, tmp_
     assert payload["gus"]["env"] == {"A": "1"}
     assert payload["gus"]["cwd"] == str(work)
     assert (shim_dir(env) / "gus,").is_symlink()
+
+
+def _fake_comma(directory: Path) -> Path:
+    """A `comma` on PATH that answers `completion` without starting Python."""
+    script = directory / "comma"
+    script.write_text(
+        "#!/bin/sh\n"
+        'case "$2" in\n'
+        "  bash) printf '%s\\n' 'complete -F _fake_comma comma' '_fake_comma() { :; }' ;;\n"
+        "  zsh)  printf '%s\\n' '_fake_comma() { :; }' 'compdef _fake_comma comma' ;;\n"
+        "  *) exit 2 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+def test_init_setup_avoids_process_substitution(comma, env) -> None:
+    """The setup must not need `source <(...)`.
+
+    macOS ships bash 3.2, which reads the process substitution without waiting
+    for the writer: the sourced text is never executed, so the documented setup
+    registers no completion at all, and the writer dies with BrokenPipeError.
+    """
+    for shell in ("bash", "zsh"):
+        snippet = comma("init", "--shell", shell).stdout
+        assert "<(" not in snippet
+
+
+def test_bash_setup_registers_completion(comma, env, tmp_path) -> None:
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is not installed")
+    _fake_comma(tmp_path)
+    rc = tmp_path / "rc.bash"
+    rc.write_text(comma("init", "--shell", "bash").stdout, encoding="utf-8")
+
+    result = subprocess.run(
+        [bash, "--noprofile", "--norc", "-c", f"source {rc}; complete -p comma"],
+        env={**env, "PATH": f"{tmp_path}:{env['PATH']}"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert "_fake_comma" in result.stdout, result.stderr
+    assert result.stderr == ""
+
+
+def test_zsh_setup_registers_completion_without_compinit(comma, env, tmp_path) -> None:
+    zsh = shutil.which("zsh")
+    if zsh is None:
+        pytest.skip("zsh is not installed")
+    _fake_comma(tmp_path)
+    rc = tmp_path / "zshrc"
+    rc.write_text(comma("init", "--shell", "zsh").stdout, encoding="utf-8")
+
+    result = subprocess.run(
+        [zsh, "-f", "-c", f"source {rc}; whence -w _fake_comma"],
+        env={**env, "PATH": f"{tmp_path}:{env['PATH']}"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert "function" in result.stdout, result.stderr
+    assert result.stderr == ""

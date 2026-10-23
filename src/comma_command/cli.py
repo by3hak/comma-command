@@ -150,8 +150,24 @@ def _init_snippet(shell: str) -> str:
             f"set -gx PATH {shim} $PATH\n"
             "comma completion fish | source\n"
         )
-    completion = "" if shell == "sh" else f'source <(comma completion {shell})\n'
-    return f'# comma (managed)\nexport PATH="{shim}:$PATH"\n{completion}'
+
+    head = f'# comma (managed)\nexport PATH="{shim}:$PATH"\n'
+    if shell == "sh":
+        return head  # no completion: `complete`/`compdef` are bash/zsh builtins
+    if shell == "zsh":
+        # `compdef` exists only after compinit; a fresh zsh that has not run it
+        # yet would print "command not found" and register nothing.
+        return (
+            head
+            + "if (( ! $+functions[compdef] )); then\n"
+            + "  autoload -Uz compinit && compinit -C\n"
+            + "fi\n"
+            + 'eval "$(comma completion zsh)"\n'
+        )
+    # `eval`, not `source <(...)`: bash 3.2 (the default on macOS) reads a
+    # process substitution without waiting for the writer, so the sourced text
+    # never runs and the setup silently registers no completion.
+    return head + f'eval "$(comma completion {shell})"\n'
 
 
 # --------------------------------------------------------------------------- commands
