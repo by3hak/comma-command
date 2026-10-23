@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -302,3 +303,56 @@ def test_zsh_setup_registers_completion_without_compinit(comma, env, tmp_path) -
 
     assert "function" in result.stdout, result.stderr
     assert result.stderr == ""
+
+
+needs_permissions = pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="file permissions do not apply to root",
+)
+
+
+@needs_permissions
+def test_unreadable_config_is_reported_not_raised(comma, env) -> None:
+    """Restored dotfiles can come back owned by another user."""
+    comma("add", "gus", "--", "/bin/echo", "hi")
+    config = Path(env["XDG_CONFIG_HOME"]) / "comma" / "config.toml"
+    config.chmod(0)
+    try:
+        result = comma("ls")
+    finally:
+        config.chmod(0o644)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert "cannot read" in result.stderr
+    assert str(config) in result.stderr
+
+
+@needs_permissions
+def test_unwritable_config_directory_is_reported(comma, env) -> None:
+    comma("add", "gus", "--", "/bin/echo", "hi")
+    directory = Path(env["XDG_CONFIG_HOME"]) / "comma"
+    directory.chmod(0o555)
+    try:
+        result = comma("add", "bob", "--", "/bin/echo", "hi")
+    finally:
+        directory.chmod(0o755)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert "cannot write" in result.stderr
+
+
+@needs_permissions
+def test_unwritable_shim_directory_is_reported(comma, env) -> None:
+    comma("add", "gus", "--", "/bin/echo", "hi")
+    shims = shim_dir(env)
+    shims.chmod(0o555)
+    try:
+        result = comma("add", "bob", "--", "/bin/echo", "hi")
+    finally:
+        shims.chmod(0o755)
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert result.stderr.startswith("comma: ")

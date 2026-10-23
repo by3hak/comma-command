@@ -669,3 +669,11 @@ def main(argv: list[str] | None = None) -> int:
     except config_mod.ConfigError as exc:
         print(f"comma: {exc}", file=sys.stderr)
         return 1
+    except BrokenPipeError:
+        # `comma ls | head`: the reader went away; nothing to report.
+        return 1
+    except OSError as exc:
+        # Remaining filesystem failures (shim directory not writable, say) are
+        # a message, not a traceback.
+        print(f"comma: {exc}", file=sys.stderr)
+        return 1
