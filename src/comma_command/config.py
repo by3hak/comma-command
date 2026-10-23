@@ -172,9 +172,17 @@ def load(path: Path) -> dict[str, Command]:
     """Parse ``path``. A missing file is an empty config, not an error."""
     if not path.exists():
         return {}
+    # A config restored from a backup, or one left owned by another user, is a
+    # plain filesystem problem: report it, do not let a traceback out.
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"cannot read {path}: {exc.strerror or exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"{path}: not valid UTF-8: {exc}") from exc
+    try:
+        raw = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"{path}: invalid TOML: {exc}") from exc
 
     table = raw.get("commands", {})
@@ -268,4 +276,7 @@ def save(path: Path, commands: dict[str, Command]) -> None:
             keys = ", ".join(_toml_string(key) for key in command.env_unset)
             lines.append(f"env_unset = [{keys}]")
         lines.append("")
-    _atomic_write(path, "\n".join(lines))
+    try:
+        _atomic_write(path, "\n".join(lines))
+    except OSError as exc:
+        raise ConfigError(f"cannot write {path}: {exc.strerror or exc}") from exc
