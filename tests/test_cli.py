@@ -60,6 +60,37 @@ def test_add_refuses_to_clobber_foreign_file(comma, env, launcher) -> None:
     assert comma("add", "--force", "gus", "--", "echo", "hi").returncode == 0
 
 
+def test_add_reclaims_a_shim_from_an_earlier_install(comma, env, launcher, echoargs) -> None:
+    """`comma doctor` calls a leftover shim missing and says to re-run `comma add`.
+
+    A shim from a previous install (pipx instead of `uv tool`, a venv since
+    deleted) still points at a `comma` launcher, so that advice has to work
+    instead of failing with "was not created by comma".
+    """
+    shim = shim_dir(env) / "gus,"
+    shim.parent.mkdir(parents=True)
+    shim.symlink_to("/opt/old-comma/bin/comma")
+
+    result = comma("add", "gus", "--", str(echoargs), "hi")
+
+    assert result.returncode == 0, result.stderr
+    assert shim.resolve() == launcher.resolve()
+
+
+def test_add_still_refuses_a_foreign_symlink(comma, env, launcher, echoargs, tmp_path) -> None:
+    other = tmp_path / "another-tool"
+    other.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    other.chmod(0o755)
+    shim = shim_dir(env) / "gus,"
+    shim.parent.mkdir(parents=True)
+    shim.symlink_to(other)
+
+    result = comma("add", "gus", "--", str(echoargs), "hi")
+
+    assert result.returncode != 0
+    assert "already exists" in result.stderr
+
+
 def test_ls_json(comma, env, launcher, echoargs) -> None:
     comma("add", "gus", "--", str(echoargs), "too", "talk", "gus", "--")
     payload = json.loads(comma("ls", "--json").stdout)

@@ -114,8 +114,17 @@ def _is_our_shim(shim: Path) -> bool:
     if not shim.is_symlink():
         return False
     try:
-        return shim.resolve() == _launcher().resolve()
+        if shim.resolve() == _launcher().resolve():
+            return True
     except (OSError, CliError):
+        pass
+    # A shim from an earlier install — pipx instead of `uv tool`, a venv that has
+    # since been deleted — still points at a `comma` binary, just not this one.
+    # `comma doctor` calls it missing and says to re-run `comma add`, so that
+    # has to reclaim it instead of demanding --force.
+    try:
+        return shim.readlink().name == "comma"
+    except OSError:
         return False
 
 
