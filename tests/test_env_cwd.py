@@ -211,3 +211,49 @@ def test_hand_written_relative_cwd_is_rejected(comma, env, launcher) -> None:
 
     assert result.returncode == 1
     assert "must be absolute or start with ~" in result.stderr
+
+
+def _local_script(work: Path, body: str = "#!/bin/sh\nexit 0\n") -> Path:
+    script = work / "run.sh"
+    script.write_text(body, encoding="utf-8")
+    script.chmod(0o755)
+    return script
+
+
+def test_relative_target_is_resolved_against_cwd(comma, env, launcher, tmp_path) -> None:
+    """`--cwd DIR -- ./run.sh` runs fine, so it must not warn about PATH."""
+    work = tmp_path / "proj"
+    work.mkdir()
+    _local_script(work)
+
+    result = comma("add", "--cwd", str(work), "local", "--", "./run.sh")
+
+    assert result.returncode == 0, result.stderr
+    assert "not on PATH" not in result.stderr
+    assert result.stderr == ""
+
+    activate(env)
+    ran = run_shim(env, "local,")
+    assert ran.returncode == 0, ran.stderr
+
+
+def test_doctor_accepts_a_target_relative_to_cwd(comma, env, launcher, tmp_path) -> None:
+    work = tmp_path / "proj"
+    work.mkdir()
+    _local_script(work)
+    comma("add", "--cwd", str(work), "local", "--", "./run.sh")
+
+    result = comma("doctor")
+
+    assert result.returncode == 0, result.stdout
+    assert "ok    local," in result.stdout
+
+
+def test_doctor_still_flags_a_missing_relative_target(comma, env, launcher, tmp_path) -> None:
+    work = tmp_path / "proj"
+    work.mkdir()
+    comma("add", "--cwd", str(work), "local", "--", "./run.sh")
+    result = comma("doctor")
+
+    assert result.returncode == 1
+    assert "does not exist in" in result.stdout
