@@ -334,7 +334,12 @@ def _rm(args: list[str]) -> int:
 
     shim = paths.shim_dir() / f"{name},"
     if shim.is_symlink() or shim.exists():
-        shim.unlink()
+        if _is_our_shim(shim):
+            shim.unlink()
+        else:
+            # `add` refuses to clobber a foreign NAME,, so `rm` must not delete
+            # one either: unregister the name, leave the file where it is.
+            print(f"note: left {shim} in place; it was not created by comma", file=sys.stderr)
 
     print(f"removed {name}, (was {removed.display()})")
     return 0
