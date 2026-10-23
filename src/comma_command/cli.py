@@ -67,6 +67,32 @@ def _on_path(directory: Path) -> bool:
     return False
 
 
+def _target_problem(command: config_mod.Command) -> tuple[str, int] | None:
+    """Why ``name,`` would not exec its target, and the status it would exit with.
+
+    A program containing a path separator is not looked up on PATH: `dispatch`
+    execs it as written, after changing to the command's ``cwd``. Asking
+    ``shutil.which`` about ``./run.sh`` therefore called a working
+    ``--cwd DIR -- ./run.sh`` missing.
+    """
+    program = command.argv[0]
+    if os.sep in program or (os.altsep is not None and os.altsep in program):
+        base = Path(os.path.expanduser(command.cwd)) if command.cwd else Path.cwd()
+        target = Path(program)
+        if not target.is_absolute():
+            target = base / target
+        if not target.exists():
+            return f"target {program!r} does not exist in {target.parent}", 127
+        if not target.is_file():
+            return f"target {program!r} is not a file", 126
+        if not os.access(target, os.X_OK):
+            return f"target {program!r} is not executable", 126
+        return None
+    if shutil.which(program) is None:
+        return f"target {program!r} is not on PATH", 127
+    return None
+
+
 def _launcher() -> Path:
     """Absolute path of the ``comma`` executable the shims should point at."""
     override = os.environ.get("COMMA_SHIM_TARGET")
@@ -233,12 +259,10 @@ def _add(args: list[str]) -> int:
                 f"note: this replaces the previous {name}, and drops "
                 f"{', '.join(dropped)} (pass the flags again to keep them)"
             )
-    if shutil.which(command.argv[0]) is None:
-        print(
-            f"warning: {command.argv[0]!r} is not on PATH — `{name},` will exit 127 "
-            "until it is installed or PATH is fixed",
-            file=sys.stderr,
-        )
+    problem = _target_problem(command)
+    if problem is not None:
+        why, status = problem
+        print(f"warning: {why} — `{name},` will exit {status} until that is fixed", file=sys.stderr)
     if not _on_path(paths.shim_dir()):
         print(f"note: {paths.shim_dir()} is not on PATH — run `comma init --write`")
     return 0
@@ -445,10 +469,12 @@ def _doctor(args: list[str]) -> int:
             issues.append("shim missing — re-run `comma add`")
         elif not os.access(shim, os.X_OK):
             issues.append("shim is not executable")
-        if shutil.which(command.argv[0]) is None:
-            issues.append(f"target {command.argv[0]!r} is not on PATH")
         if command.cwd and not Path(os.path.expanduser(command.cwd)).is_dir():
             issues.append(f"cwd {command.cwd!r} is not a directory")
+        else:
+            problem = _target_problem(command)
+            if problem is not None:
+                issues.append(problem[0])
         if issues:
             print(f"FAIL  {name},: " + "; ".join(issues))
             problems += 1
