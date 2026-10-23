@@ -356,3 +356,31 @@ def test_unwritable_shim_directory_is_reported(comma, env) -> None:
     assert result.returncode == 1
     assert "Traceback" not in result.stderr
     assert result.stderr.startswith("comma: ")
+
+
+def test_rm_leaves_a_foreign_shim_alone(comma, env, launcher, echoargs) -> None:
+    """`add` refuses a foreign NAME,; `rm` must not quietly delete it either."""
+    comma("add", "gus", "--", str(echoargs), "--")
+    shim = shim_dir(env) / "gus,"
+    shim.unlink()
+    shim.write_text("#!/bin/sh\necho someone-elses-script\n", encoding="utf-8")
+    shim.chmod(0o755)
+
+    result = comma("rm", "gus")
+
+    assert result.returncode == 0, result.stderr
+    assert shim.exists(), "rm deleted a file comma did not create"
+    assert "not created by comma" in result.stderr
+    assert "no commands registered" in comma("ls").stdout
+
+
+def test_rm_removes_its_own_shim(comma, env, launcher, echoargs) -> None:
+    comma("add", "gus", "--", str(echoargs), "--")
+    shim = shim_dir(env) / "gus,"
+    assert shim.is_symlink()
+
+    result = comma("rm", "gus")
+
+    assert result.returncode == 0, result.stderr
+    assert not shim.exists() and not shim.is_symlink()
+    assert "left" not in result.stderr
